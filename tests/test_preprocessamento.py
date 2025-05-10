@@ -24,11 +24,15 @@ def test_processar_imagem_valida():
     assert img.ndim == 3, "Imagem não tem 3 dimensões (altura, largura, canais)"
     assert img.shape[2] == 3, "Imagem não tem 3 canais (RGB)"
 
-def test_redimensionar_imagem_mockada(imagem_mock_grande):
+def test_redimensionar_imagem_mockada(mocker):
     from src.preprocessamento import redimensionar_imagem
 
+    imagem_mock = np.ones((1200, 1600, 3), dtype=np.uint8)
+
+    mocker.patch("cv2.imread", return_value=imagem_mock)
+
     largura_esperada = 800
-    nova_img = redimensionar_imagem(imagem_mock_grande, largura=largura_esperada)
+    nova_img = redimensionar_imagem(imagem_mock, largura=largura_esperada)
 
     assert nova_img.shape[1] == largura_esperada, f"Largura incorreta: {nova_img.shape[1]}"
     assert nova_img.shape[0] == 600, f"Altura proporcional incorreta: {nova_img.shape[0]}"
