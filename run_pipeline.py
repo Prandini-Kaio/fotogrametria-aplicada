@@ -1,4 +1,4 @@
-from src import executar_pipeline_basico
+from src import run_pipeline_fotogrametria
 
 if __name__ == '__main__':
-    executar_pipeline_basico()
+    run_pipeline_fotogrametria("data/bruto/south-building/images", "colmap_pipeline", metodo="SIFT")

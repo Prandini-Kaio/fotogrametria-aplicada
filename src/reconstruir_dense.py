@@ -5,11 +5,6 @@ from pathlib import Path
 from src.print_utils import ColorPrinter
 
 def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_exhaustive_match=True):
-
-    # Set QT environment variable para prenvinir GUI issues
-    os.environ["QT_QPA_PLATAFORM"] = 'offscreen'
-    os.environ["QT_DEBUG_PLUGINS"] = "0"
-
     path_base = Path(path_base)
     images = path_base / "images"
     sparse = path_base / "sparse"
@@ -20,8 +15,10 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
     dense.mkdir(parents=True, exist_ok=True)
 
     def run(cmd):
-        ColorPrinter(f"[COLMAP] Executando: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
+        ColorPrinter.info(f"[COLMAP] Executando: {' '.join(cmd)}")
+        env = os.environ.copy()
+        env["QT_QPA_PLATAFORM"] = "offscreen"
+        subprocess.run(cmd, check=True, env=env)
     
     # Extrair caracteristicas
     run([
@@ -60,7 +57,9 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
     run([
         "colmap", "patch_match_stereo",
         "--workspace_path", str(dense),
-        "--worspace_format", "COLMAP",
+        "--workspace_format", "COLMAP",
+        "--PatchMatchStereo.geom_consistency", "true",
+        "--PatchMatchStereo.enable_gpu", "0",
         "--input_type", "geometric",
         "--output_path", str(dense / "fused.ply")
     ])
