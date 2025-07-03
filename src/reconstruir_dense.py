@@ -59,7 +59,7 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
         "--workspace_path", str(dense),
         "--workspace_format", "COLMAP",
         "--PatchMatchStereo.geom_consistency", "true",
-        "--PatchMatchStereo.enable_gpu", "0",
+        "--SiftExtraction.use_gpu=false"
         "--input_type", "geometric",
         "--output_path", str(dense / "fused.ply")
     ])
