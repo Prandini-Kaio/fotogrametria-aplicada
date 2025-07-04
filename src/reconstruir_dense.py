@@ -13,29 +13,42 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
 
     sparse.mkdir(parents=True, exist_ok=True)
     dense.mkdir(parents=True, exist_ok=True)
-
-    def run(cmd):
-        ColorPrinter.info(f"[COLMAP] Executando: {' '.join(cmd)}")
-        env = os.environ.copy()
-        env["QT_QPA_PLATAFORM"] = "offscreen"
-        subprocess.run(cmd, check=True, env=env)
     
     # Extrair caracteristicas
+    extrair_caracteristicas(database, images)
+
+    # Match entre imagens
+    match_images(database, use_exhaustive_match)
+
+    # Reconstrução SFM(esparsa)......
+    reconstruir_sfm(database, images, sparse)
+
+    # Undistort
+    undistort(images, sparse, dense, max_image_size)
+
+    # PatchMatch stereo
+    patchmatch_stereo(dense)
+
+    ColorPrinter.success("[COLMAP] Pipeline finalizado com sucesso!")
+
+def extrair_caracteristicas(database, images):
     run([
         "colmap", "feature_extractor",
         "--database_path", str(database),
         "--image_path", str(images),
-        "--ImageReader.single_camera", "1"
+        "--ImageReader.single_camera", "1",
+        "--SiftExtraction.use_gpu", "0"
     ])
 
-    # Match entre imagens
+def match_images(database, use_exhaustive_match):
     matcher = "exhaustive_matcher" if use_exhaustive_match else "sequential_matcher"
     run([
         "colmap", matcher,
-        "--database_path", str(database)
+        "--database_path", str(database),
+        "--SiftMatching.use_gpu", "0"
     ])
 
-    # Reconstrução SFM(esparsa)......
+def reconstruir_sfm(database, images, sparse):
     run([
         "colmap", "mapper",
         "--database_path", str(database),
@@ -43,7 +56,7 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
         "--output_path", str(sparse)
     ])
 
-    # Undistort
+def undistort(images, sparse, dense, max_image_size):
     run([
         "colmap", "image_undistorter",
         "--image_path", str(images),
@@ -53,16 +66,21 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
         "--max_image_size", str(max_image_size)
     ])
 
-    # PatchMatch stereo
+def patchmatch_stereo(dense):
     run([
         "colmap", "patch_match_stereo",
         "--workspace_path", str(dense),
         "--workspace_format", "COLMAP",
         "--PatchMatchStereo.geom_consistency", "true",
-        "--SiftExtraction.use_gpu=false"
+        "--SiftExtraction.use_gpu", "0",
         "--input_type", "geometric",
         "--output_path", str(dense / "fused.ply")
     ])
 
-    ColorPrinter.success("[COLMAP] Pipeline finalizado com sucesso!")
-
+def run(cmd):
+    ColorPrinter.info(f"[COLMAP] Executando: {''.join(cmd)}")
+    full_env = os.environ.copy()
+    full_env['CUDA_PATH'] = '/usr/local/cuda'
+    full_env['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:' + full_env.get('LD_LIBRARY_PATH', '')
+    full_env["QT_QPA_PLATFORM"] = "offscreen" 
+    subprocess.run(cmd, check=True, env=full_env)
