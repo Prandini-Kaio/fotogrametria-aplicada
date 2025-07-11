@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
-from src import deteccao_pontos
+from src.deteccaopontos import deteccao_pontos
+
 
 def gerar_imagem_mockada():
     """
@@ -32,7 +33,7 @@ def test_deteccao_pontos_sift():
 
 # Matching com descritores ORB-like
 def test_correspondendia_descritores_orb():
-    from src.deteccao_pontos import corresponder_descritores
+    from src.deteccaopontos.deteccao_pontos import corresponder_descritores
 
     # Simula descritores de ORB (uint8)
     desc1 = np.random.randint(0, 256, (100, 32), dtype=np.uint8)
@@ -48,7 +49,7 @@ def test_correspondendia_descritores_orb():
 
 # Matching com descritores SIFT-like
 def test_correspondendia_descritores_sift():
-    from src.deteccao_pontos import corresponder_descritores
+    from src.deteccaopontos.deteccao_pontos import corresponder_descritores
 
     # Simula descritores de SIFT (float32)
     desc1 = np.random.rand(50, 128).astype(np.float32)

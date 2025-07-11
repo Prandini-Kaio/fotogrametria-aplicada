@@ -2,7 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from src.print_utils import ColorPrinter
+from src.utils.log import Log
 
 def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_exhaustive_match=True):
     path_base = Path(path_base)
@@ -29,7 +29,7 @@ def run_colmap_pipeline(path_base="colmap_pipeline", max_image_size=2000, use_ex
     # PatchMatch stereo
     patchmatch_stereo(dense)
 
-    ColorPrinter.success("[COLMAP] Pipeline finalizado com sucesso!")
+    Log.success("[COLMAP] Pipeline finalizado com sucesso!")
 
 def extrair_caracteristicas(database, images):
     run([
@@ -78,7 +78,7 @@ def patchmatch_stereo(dense):
     ])
 
 def run(cmd):
-    ColorPrinter.info(f"[COLMAP] Executando: {''.join(cmd)}")
+    Log.info(f"[COLMAP] Executando: {''.join(cmd)}")
     full_env = os.environ.copy()
     full_env['CUDA_PATH'] = '/usr/local/cuda'
     full_env['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:' + full_env.get('LD_LIBRARY_PATH', '')
