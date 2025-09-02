@@ -1,4 +1,5 @@
 from src import Main
 
 if __name__ == '__main__':
-    Main.run_pipeline_fotogrametria("data/bruto/south-building/images", "colmap_pipeline", metodo="SIFT")
+    main = Main("resources/input/brute-images/south-building/images", "resources/output/images", metodo="SIFT")
+    main.run_pipeline_fotogrametria()

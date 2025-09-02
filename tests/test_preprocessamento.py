@@ -4,7 +4,7 @@ import os
 from src import preprocessamento
 
 def test_processar_imagem_valida():
-    path = "/home/kaiooliveira/Documentos/kaio/dev/Fotogrametria/fotogrametria_aplicada/data/bruto/south-building/images/P1180141.JPG" 
+    path = "/assets/images/data/brute-images/south-building/images/P1180141.JPG"
     assert os.path.exists(path), f"Imagem de teste não encontrada {path}"
 
     # Paramêtros da câmera
