@@ -22,6 +22,7 @@ services:
       - ./notebooks:/app/notebooks:rw
       - ./src:/app/src:ro
       - ./requirements.txt:/app/requirements.txt:ro
+      - ./run_pipeline.py:/app/run_pipeline.py:ro
     ports:
       - "8888:8888"   # expõe Jupyter (se rodar notebooks)
     # GPU: requer NVIDIA Container Toolkit / Docker com suporte a gpus
