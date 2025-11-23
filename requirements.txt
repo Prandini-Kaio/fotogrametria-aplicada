@@ -1,5 +1,10 @@
 opencv-python
 numpy
-open3d
 matplotlib
 scikit-image
+colorama
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+# open3d  # Opcional: pode não estar disponível para Python 3.13+

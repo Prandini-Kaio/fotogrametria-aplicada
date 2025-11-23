@@ -1,113 +1,48 @@
-FROM colmap/colmap
+FROM python:3.10-slim-bullseye
 
-# Evita prompts durante a instalação
-ENV DEBIAN_FRONTEND=noninteractive
+# variáveis de ambiente necessárias
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_PATH=/usr/local/cuda
+ENV QT_QPA_PLATFORM=offscreen
 
-# Instalar dependências básicas
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  cmake \
-  build-essential \
-  graphviz \
-  git \
-  coinor-libclp-dev \
-  libceres-dev \
-  libjpeg-dev \
-  libpng-dev \
-  libtiff-dev \
-  libxi-dev \
-  libxinerama-dev \
-  libxcursor-dev \
-  libxxf86vm-dev; \
-  apt-get autoclean && apt-get clean
+# Instala libs do sistema necessárias (imagem slim)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    ca-certificates \
+    libgl1-mesa-glx \
+    libgtk2.0-dev \
+    libboost-all-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get -y install libboost-iostreams-dev libboost-program-options-dev libboost-system-dev libboost-serialization-dev
+# (Opcional) Instruções para instalar COLMAP/OpenMVG/OpenMVS
+# Recomendo preparar uma imagem base separada que já contenha os binários.
+# Exemplo (comentado): RUN apt-get install -y colmap
 
-# CGAL
-RUN apt-get -y install libcgal-dev libcgal-qt5-dev
-#
-## Dependencias COLMAP
-#RUN DEBIAN_FRONTEND=noninteractive apt-get -y install \
-#  libboost-program-options-dev \
-#  libboost-filesystem-dev \
-#  libboost-graph-dev \
-#  libboost-regex-dev \
-#  libboost-system-dev \
-#  libboost-test-dev \
-#  libeigen3-dev \
-#  libsuitesparse-dev \
-#  libfreeimage-dev \
-#  libgoogle-glog-dev \
-#  libgflags-dev \
-#  libglew-dev \
-#  qtbase5-dev \
-#  libqt5opengl5-dev
-#
-## Clonar e compilar COLMAP
-#RUN git clone https://github.com/colmap/colmap.git --branch main && \
-#  mkdir colmap_build && cd colmap_build
-
-# Clonar e compilar OpenMVS
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -yq libopencv-dev
-
-# Build latest openvMVG
-RUN git clone --recursive https://github.com/openMVG/openMVG.git --branch develop; \
-  mkdir openMVG_build && cd openMVG_build; \
-  cmake -DCMAKE_BUILD_TYPE=RELEASE \
-    -DCMAKE_INSTALL_PREFIX="/opt" \
-    -DOpenMVG_BUILD_TESTS=OFF \
-    -DOpenMVG_BUILD_EXAMPLES=OFF \
-    -DOpenMVG_BUILD_DOC=OFF \
-    -DOpenMVG_BUILD_OPENGL_EXAMPLES=ON \
-    -DOpenMVG_USE_OPENCV=ON \
-    -DOpenMVG_USE_OCVSIFT=OFF \
-    -DCOINUTILS_INCLUDE_DIR_HINTS=/usr/include \
-    -DCLP_INCLUDE_DIR_HINTS=/usr/include \
-    -DOSI_INCLUDE_DIR_HINTS=/usr/include \
-    -DEIGEN_INCLUDE_DIR_HINTS=/usr/include/eigen3 \
-    ../openMVG/src; \
-  make -j 4 && make install; \
-  cp ../openMVG/src/openMVG/exif/sensor_width_database/sensor_width_camera_database.txt /opt/bin/; \
-  cd .. && rm -rf openMVG_build
-
-RUN git clone https://gitlab.com/libeigen/eigen --branch 3.2; \
-  mkdir eigen_build && cd eigen_build; \
-  cmake -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX="/usr/local/include/eigen32" . ../eigen; \
-  make && make install; \
-  cd .. && rm -rf eigen_build
-
-# VCGLib
-RUN git clone https://github.com/cdcseacave/VCG.git vcglib
-
-# Build latest openMVS
-RUN git clone https://github.com/cdcseacave/openMVS.git --branch develop; \
-  mkdir openMVS_build && cd openMVS_build; \
-  cmake . ../openMVS -DCMAKE_BUILD_TYPE=Release \
-    -DVCG_ROOT=/vcglib \
-    -DEIGEN3_INCLUDE_DIR=/usr/local/include/eigen32/include/eigen3 \
-    -DCMAKE_INSTALL_PREFIX="/opt"; \
-  make -j4 && make install; \
-  cp ../openMVS/MvgMvsPipeline.py /opt/bin/; \
-  cd .. && rm -rf openMVS_build
-
-# Install cmvs-pmvs
-RUN git clone https://github.com/pmoulon/CMVS-PMVS cmvs-pmvs; \
-  mkdir cmvs_pmvs_build && cd cmvs_pmvs_build; \
-  cmake ../cmvs-pmvs/program -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt; \
-  make -j4 && make install; \
-  cd .. && rm -rf cmvs_pmvs_build
-
-# Instalar Python libs
-RUN apt-get update && apt-get install -y python3 python3-pip
-
-RUN pip install --no-cache-dir --break-system-packages \
-    numpy matplotlib opencv-python open3d pytest colorama
-
-# Add binaries to path
-ENV PATH=$PATH:/opt/bin:/opt/bin/OpenMVS
-
-# Copiar o projeto
 WORKDIR /app
+
+# Copia requirements e instala dependências Python
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && pip install -r /app/requirements.txt
+
+# Copia código
 COPY . /app
 
-# Rodar por padrão o script Python
-ENTRYPOINT ["python3", "run_pipeline.py"]
+# Cria diretórios padrão
+RUN mkdir -p /app/resources/input /app/resources/output /app/notebooks
+
+# Usuário não-root opcional (preserva permissões)
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+RUN groupadd -g ${GROUP_ID} appgroup || true && \
+    useradd -m -u ${USER_ID} -g ${GROUP_ID} appuser || true
+USER appuser
+
+# Porta para Jupyter (se necessário)
+EXPOSE 8888
+
+# Entrypoint por padrão (pode ser sobrescrito no compose)
+CMD ["python3", "run_pipeline.py"]
