@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fotogrametria - Geração de Modelos 3D</title>
+    <!-- Tema Centralizado -->
+    <link rel="stylesheet" href="/static/theme.css">
+    <!-- Three.js Core -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    
+    <!-- Carregar PLYLoader e OrbitControls usando ES Modules com tratamento de erro -->
+    <script type="module">
+        (async function() {
+            try {
+                // Aguardar um pouco para garantir que Three.js está carregado
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Tentar importar via jsdelivr primeiro
+                try {
+                    const { PLYLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/PLYLoader.js');
+                    const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+                    
+                    // Tornar disponíveis globalmente
+                    window.PLYLoader = PLYLoader;
+                    window.OrbitControls = OrbitControls;
+                    
+                    if (typeof THREE !== 'undefined') {
+                        THREE.PLYLoader = PLYLoader;
+                        THREE.OrbitControls = OrbitControls;
+                    }
+                    
+                    console.log('✅ PLYLoader e OrbitControls carregados via jsdelivr');
+                    window.dispatchEvent(new CustomEvent('threejs-loaders-ready'));
+                } catch (e1) {
+                    console.warn('jsdelivr falhou, tentando Skypack...', e1);
+                    // Fallback: usar Skypack
+                    const { PLYLoader } = await import('https://cdn.skypack.dev/three@0.160.0/examples/jsm/loaders/PLYLoader.js');
+                    const { OrbitControls } = await import('https://cdn.skypack.dev/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+                    
+                    window.PLYLoader = PLYLoader;
+                    window.OrbitControls = OrbitControls;
+                    
+                    if (typeof THREE !== 'undefined') {
+                        THREE.PLYLoader = PLYLoader;
+                        THREE.OrbitControls = OrbitControls;
+                    }
+                    
+                    console.log('✅ PLYLoader e OrbitControls carregados via Skypack');
+                    window.dispatchEvent(new CustomEvent('threejs-loaders-ready'));
+                }
+            } catch (error) {
+                console.error('❌ Erro ao carregar módulos:', error);
+                alert('Erro ao carregar módulos do Three.js.\n\nPor favor, recarregue a página.');
+            }
+        })();
+    </script>
+    
+    <!-- Fallback: Tentar carregar via script tradicional se módulos ES6 falharem -->
+    <script>
+        // Aguardar um pouco para ver se os módulos ES6 carregaram
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                // Se ainda não estiver disponível, tentar criar loaders manualmente
+                if (typeof THREE !== 'undefined' && (typeof window.PLYLoader === 'undefined' || typeof window.OrbitControls === 'undefined')) {
+                    console.warn('Tentando carregar loaders via método alternativo...');
+                    
+                    // Criar PLYLoader simples se necessário
+                    if (typeof window.PLYLoader === 'undefined' && typeof THREE !== 'undefined') {
+                        // Implementação básica do PLYLoader usando FileLoader
+                        window.PLYLoader = function() {
+                            this.load = function(url, onLoad, onProgress, onError) {
+                                const loader = new THREE.FileLoader();
+                                loader.load(url, function(text) {
+                                    try {
+                                        const geometry = parsePLY(text);
+                                        if (onLoad) onLoad(geometry);
+                                    } catch (e) {
+                                        if (onError) onError(e);
+                                    }
+                                }, onProgress, onError);
+                            };
+                        };
+                        
+                        function parsePLY(text) {
+                            // Parser básico de PLY - apenas para formatos simples
+                            const lines = text.split('\n');
+                            let vertexCount = 0;
+                            let faceCount = 0;
+                            let readingVertices = false;
+                            let readingFaces = false;
+                            const vertices = [];
+                            const faces = [];
+                            let lineIndex = 0;
+                            
+                            // Ler cabeçalho
+                            while (lineIndex < lines.length) {
+                                const line = lines[lineIndex].trim();
+                                if (line.startsWith('element vertex')) {
+                                    vertexCount = parseInt(line.split(' ')[2]);
+                                } else if (line.startsWith('element face')) {
+                                    faceCount = parseInt(line.split(' ')[2]);
+                                } else if (line === 'end_header') {
+                                    lineIndex++;
+                                    break;
+                                }
+                                lineIndex++;
+                            }
+                            
+                            // Ler vértices
+                            for (let i = 0; i < vertexCount && lineIndex < lines.length; i++) {
+                                const parts = lines[lineIndex].trim().split(/\s+/);
+                                if (parts.length >= 3) {
+                                    vertices.push(
+                                        parseFloat(parts[0]),
+                                        parseFloat(parts[1]),
+                                        parseFloat(parts[2])
+                                    );
+                                }
+                                lineIndex++;
+                            }
+                            
+                            // Ler faces
+                            for (let i = 0; i < faceCount && lineIndex < lines.length; i++) {
+                                const parts = lines[lineIndex].trim().split(/\s+/);
+                                if (parts.length >= 4 && parts[0] === '3') {
+                                    faces.push(
+                                        parseInt(parts[1]),
+                                        parseInt(parts[2]),
+                                        parseInt(parts[3])
+                                    );
+                                }
+                                lineIndex++;
+                            }
+                            
+                            const geometry = new THREE.BufferGeometry();
+                            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                            if (faces.length > 0) {
+                                geometry.setIndex(faces);
+                            }
+                            return geometry;
+                        }
+                        
+                        console.log('PLYLoader criado via fallback');
+                    }
+                    
+                    // Criar OrbitControls se necessário
+                    if (typeof window.OrbitControls === 'undefined' && typeof THREE !== 'undefined') {
+                        // Implementação simples de OrbitControls
+                        window.OrbitControls = function(object, domElement) {
+                            this.object = object;
+                            this.domElement = domElement;
+                            this.enableDamping = false;
+                            this.dampingFactor = 0.05;
+                            
+                            this.update = function() {
+                                // Implementação básica
+                            };
+                            
+                            // Adicionar event listeners básicos
+                            let isMouseDown = false;
+                            let lastMouseX = 0;
+                            let lastMouseY = 0;
+                            
+                            this.domElement.addEventListener('mousedown', (e) => {
+                                isMouseDown = true;
+                                lastMouseX = e.clientX;
+                                lastMouseY = e.clientY;
+                            });
+                            
+                            this.domElement.addEventListener('mousemove', (e) => {
+                                if (isMouseDown) {
+                                    const deltaX = e.clientX - lastMouseX;
+                                    const deltaY = e.clientY - lastMouseY;
+                                    // Rotação básica
+                                    this.object.rotation.y += deltaX * 0.01;
+                                    this.object.rotation.x += deltaY * 0.01;
+                                    lastMouseX = e.clientX;
+                                    lastMouseY = e.clientY;
+                                }
+                            });
+                            
+                            this.domElement.addEventListener('mouseup', () => {
+                                isMouseDown = false;
+                            });
+                            
+                            // Zoom com scroll
+                            this.domElement.addEventListener('wheel', (e) => {
+                                e.preventDefault();
+                                const scale = e.deltaY > 0 ? 1.1 : 0.9;
+                                this.object.position.multiplyScalar(scale);
+                            });
+                        };
+                        
+                        console.log('OrbitControls criado via fallback');
+                    }
+                }
+            }, 500);
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-logo">
+                <img src="/assets/logo.png" alt="NOAH Logo" onerror="this.style.display='none'">
+                <h1>🏗️ Sistema de Fotogrametria</h1>
+            </div>
+            <p>Geração e Visualização de Modelos 3D</p>
+        </div>
+
+        <div class="content">
+            <!-- Painel de Controle -->
+            <div class="panel">
+                <h2>⚙️ Configuração do Processamento</h2>
+                <form id="processForm">
+                    <div class="form-group">
+                        <label for="inputPath">Caminho de Entrada:</label>
+                        <input type="text" id="inputPath" value="resources/input/brute-images/south-building/images" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="outputPath">Caminho de Saída:</label>
+                        <input type="text" id="outputPath" value="resources/output" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="metodo">Método de Detecção:</label>
+                        <select id="metodo">
+                            <option value="SIFT">SIFT</option>
+                            <option value="ORB">ORB</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="processarImagens">
+                            <label for="processarImagens">Processar imagens do zero</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="gerarMalha" checked>
+                            <label for="gerarMalha">Gerar malha 3D (PLY)</label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn" id="startBtn">🚀 Iniciar Processamento</button>
+                </form>
+
+                <!-- Status do Processamento -->
+                <div class="status" id="statusPanel">
+                    <div class="status-item">
+                        <div class="status-label">Status:</div>
+                        <div class="status-value">
+                            <span id="statusBadge" class="status-badge status-pending">Aguardando</span>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Progresso:</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Etapa Atual:</div>
+                        <div class="status-value" id="currentStep">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Tempo Estimado:</div>
+                        <div class="status-value" id="estimatedTime">-</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Mensagem:</div>
+                        <div class="status-value" id="statusMessage">Nenhum processamento iniciado</div>
+                    </div>
+                    <div class="status-item hidden" id="errorItem">
+                        <div class="error" id="errorMessage"></div>
+                    </div>
+                    <div class="status-item" id="logsContainer" style="display: none;">
+                        <div class="status-label">
+                            Logs:
+                            <button class="toggle-logs" id="toggleLogsBtn" onclick="toggleLogs()">Ocultar</button>
+                        </div>
+                        <div class="logs-box" id="logsBox"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Painel de Visualização -->
+            <div class="panel">
+                <h2>👁️ Visualização 3D</h2>
+                
+                <div class="form-group">
+                    <label for="modelSelect">Selecione um modelo:</label>
+                    <select id="modelSelect">
+                        <option value="">Carregando modelos...</option>
+                    </select>
+                    <button class="btn" id="loadModelBtn" style="margin-top: 10px;" disabled>Carregar Modelo</button>
+                </div>
+
+                <div class="form-group" style="margin-top: 15px;">
+                    <label for="viewMode">Modo de Visualização:</label>
+                    <select id="viewMode">
+                        <option value="points">Pontos</option>
+                        <option value="mesh" selected>Malha</option>
+                        <option value="wireframe">Wireframe</option>
+                    </select>
+                </div>
+                
+                <div class="viewer" id="viewer3D">
+                    <div style="color: white; padding: 20px; text-align: center; margin-top: 200px;">
+                        Nenhum modelo carregado
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        let currentTaskId = null;
+        let statusInterval = null;
+        let scene, camera, renderer, controls;
+        let currentModel = null;
+
+        // Verificar se os loaders estão prontos antes de inicializar
+        function waitForLoaders(callback) {
+            // Verificar se já estão disponíveis
+            const hasPLYLoader = typeof window !== 'undefined' && 
+                                 (window.PLYLoader || (typeof THREE !== 'undefined' && THREE.PLYLoader));
+            const hasOrbitControls = typeof window !== 'undefined' && 
+                                     (window.OrbitControls || (typeof THREE !== 'undefined' && THREE.OrbitControls));
+            
+            if (hasPLYLoader && hasOrbitControls) {
+                console.log('✅ Loaders já estão disponíveis');
+                callback();
+            } else {
+                console.log('⏳ Aguardando carregamento dos módulos Three.js...');
+                // Aguardar evento de carregamento
+                window.addEventListener('threejs-loaders-ready', () => {
+                    console.log('✅ Evento threejs-loaders-ready recebido');
+                    callback();
+                }, { once: true });
+                
+                // Timeout de segurança (5 segundos)
+                setTimeout(() => {
+                    const hasPLY = window.PLYLoader || (typeof THREE !== 'undefined' && THREE.PLYLoader);
+                    const hasOrbit = window.OrbitControls || (typeof THREE !== 'undefined' && THREE.OrbitControls);
+                    
+                    if (hasPLY && hasOrbit) {
+                        console.log('✅ Loaders carregados após timeout');
+                        callback();
+                    } else {
+                        console.warn('⚠️ Alguns loaders não estão disponíveis após timeout');
+                        console.warn('PLYLoader:', hasPLY ? 'OK' : 'NÃO DISPONÍVEL');
+                        console.warn('OrbitControls:', hasOrbit ? 'OK' : 'NÃO DISPONÍVEL');
+                        // Continuar mesmo assim - pode usar fallback
+                        callback();
+                    }
+                }, 5000);
+            }
+        }
+        
+        // Inicializar visualizador 3D
+        function initViewer() {
+            const container = document.getElementById('viewer3D');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // Limpar conteúdo anterior
+            container.innerHTML = '';
+            container.appendChild(renderer.domElement);
+
+            // Usar OrbitControls disponível
+            const OrbitControlsClass = window.OrbitControls || (typeof THREE !== 'undefined' ? THREE.OrbitControls : null);
+            if (!OrbitControlsClass) {
+                console.warn('⚠️ OrbitControls não está disponível. Usando controle básico...');
+                // Criar controle básico manual
+                controls = {
+                    update: function() {},
+                    enableDamping: false,
+                    dampingFactor: 0.05,
+                    target: new THREE.Vector3(0, 0, 0)
+                };
+                
+                // Adicionar controles básicos de mouse
+                let isMouseDown = false;
+                let lastMouseX = 0;
+                let lastMouseY = 0;
+                
+                container.addEventListener('mousedown', (e) => {
+                    isMouseDown = true;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                });
+                
+                container.addEventListener('mousemove', (e) => {
+                    if (isMouseDown) {
+                        const deltaX = e.clientX - lastMouseX;
+                        const deltaY = e.clientY - lastMouseY;
+                        camera.rotation.y += deltaX * 0.01;
+                        camera.rotation.x += deltaY * 0.01;
+                        lastMouseX = e.clientX;
+                        lastMouseY = e.clientY;
+                    }
+                });
+                
+                container.addEventListener('mouseup', () => { isMouseDown = false; });
+                container.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const scale = e.deltaY > 0 ? 1.1 : 0.9;
+                    camera.position.multiplyScalar(scale);
+                });
+            } else {
+                controls = new OrbitControlsClass(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                // Garantir que target está inicializado
+                if (!controls.target) {
+                    controls.target = new THREE.Vector3(0, 0, 0);
+                }
+            }
+
+            // Adicionar luzes
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Carregar lista de modelos
+        async function loadModels() {
+            try {
+                const response = await fetch(`${API_BASE}/models/list`);
+                const data = await response.json();
+                
+                const select = document.getElementById('modelSelect');
+                select.innerHTML = '<option value="">Selecione um modelo...</option>';
+                
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.path;
+                        option.textContent = `${model.name} (${formatFileSize(model.size)})`;
+                        select.appendChild(option);
+                    });
+                    document.getElementById('loadModelBtn').disabled = false;
+                } else {
+                    select.innerHTML = '<option value="">Nenhum modelo disponível</option>';
+                }
+            } catch (error) {
+                console.error('Erro ao carregar modelos:', error);
+            }
+        }
+
+        // Formatar tamanho de arquivo
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Carregar modelo 3D
+        async function loadModel(modelPath) {
+            try {
+                // Limpar modelo anterior
+                if (currentModel) {
+                    scene.remove(currentModel);
+                    currentModel.geometry.dispose();
+                    if (currentModel.material) {
+                        if (Array.isArray(currentModel.material)) {
+                            currentModel.material.forEach(m => m.dispose());
+                        } else {
+                            currentModel.material.dispose();
+                        }
+                    }
+                }
+
+                // Verificar se Three.js está carregado
+                if (typeof THREE === 'undefined') {
+                    alert('Three.js não foi carregado. Por favor, recarregue a página.');
+                    return;
+                }
+                
+                // Verificar se PLYLoader está disponível
+                const PLYLoaderClass = window.PLYLoader || (typeof THREE !== 'undefined' && THREE.PLYLoader ? THREE.PLYLoader : null);
+                
+                if (!PLYLoaderClass) {
+                    console.warn('⚠️ PLYLoader não encontrado. Aguardando carregamento automático...');
+                    alert('PLYLoader ainda não está disponível.\n\nPor favor, aguarde alguns segundos e tente novamente.\n\nO loader está sendo carregado automaticamente.');
+                    
+                    // Aguardar e tentar novamente
+                    setTimeout(() => {
+                        const PLYLoaderCheck = window.PLYLoader || (typeof THREE !== 'undefined' && THREE.PLYLoader ? THREE.PLYLoader : null);
+                        if (PLYLoaderCheck) {
+                            console.log('✅ PLYLoader carregado, tentando novamente...');
+                            loadModel(modelPath);
+                        } else {
+                            console.error('❌ PLYLoader ainda não disponível. Por favor, recarregue a página.');
+                            alert('PLYLoader ainda não está disponível após tentativa.\n\nPor favor, recarregue a página (F5).');
+                        }
+                    }, 3000);
+                    return;
+                }
+                
+                // PLYLoader está disponível, criar loader
+                console.log('✅ PLYLoader disponível, carregando modelo...');
+                const loader = new PLYLoaderClass();
+                const url = `${API_BASE}/models/${modelPath}`;
+                
+                loader.load(
+                    url,
+                    (geometry) => {
+                        if (!geometry) {
+                            throw new Error('Geometria não carregada');
+                        }
+                        
+                        // Validar geometria
+                        if (!geometry.attributes || !geometry.attributes.position) {
+                            throw new Error('Geometria inválida: atributos de posição não encontrados');
+                        }
+                        
+                        const positions = geometry.attributes.position;
+                        const hasValidData = positions && positions.count > 0;
+                        
+                        if (!hasValidData) {
+                            throw new Error('Geometria vazia: nenhum vértice encontrado');
+                        }
+                        
+                        // Verificar e corrigir valores NaN
+                        let hasNaN = false;
+                        const positionArray = positions.array;
+                        for (let i = 0; i < positionArray.length; i++) {
+                            if (isNaN(positionArray[i]) || !isFinite(positionArray[i])) {
+                                hasNaN = true;
+                                // Substituir NaN por 0
+                                positionArray[i] = 0;
+                            }
+                        }
+                        
+                        if (hasNaN) {
+                            console.warn('⚠️ Valores NaN encontrados na geometria. Corrigindo...');
+                            positions.needsUpdate = true;
+                        }
+                        
+                        // Recalcular bounding box após correção
+                        geometry.computeBoundingBox();
+                        geometry.computeBoundingSphere();
+                        
+                        // Verificar se o bounding box é válido
+                        if (geometry.boundingBox) {
+                            const box = geometry.boundingBox;
+                            if (isNaN(box.min.x) || isNaN(box.max.x)) {
+                                console.warn('⚠️ Bounding box inválido. Usando valores padrão.');
+                                geometry.boundingBox.setFromCenterAndSize(
+                                    new THREE.Vector3(0, 0, 0),
+                                    new THREE.Vector3(1, 1, 1)
+                                );
+                            }
+                        }
+                        
+                        geometry.computeVertexNormals();
+                        
+                        // Obter viewMode com verificação de segurança
+                        const viewModeElement = document.getElementById('viewMode');
+                        const viewMode = viewModeElement ? viewModeElement.value : 'mesh'; // Default para mesh se não encontrar
+                        
+                        let material;
+                        
+                        // Usar cores da nova paleta (Ciano Médio: #00AEEF)
+                        const primaryColor = 0x00AEEF;
+                        
+                        if (viewMode === 'wireframe') {
+                            material = new THREE.MeshBasicMaterial({ 
+                                color: primaryColor, 
+                                wireframe: true 
+                            });
+                        } else if (viewMode === 'mesh') {
+                            material = new THREE.MeshStandardMaterial({ 
+                                color: primaryColor,
+                                flatShading: false 
+                            });
+                        } else {
+                            material = new THREE.PointsMaterial({ 
+                                color: primaryColor, 
+                                size: 0.01 
+                            });
+                        }
+
+                        if (viewMode === 'points') {
+                            currentModel = new THREE.Points(geometry, material);
+                        } else {
+                            currentModel = new THREE.Mesh(geometry, material);
+                        }
+
+                        scene.add(currentModel);
+
+                        // Ajustar câmera para enquadrar o modelo
+                        const box = new THREE.Box3().setFromObject(currentModel);
+                        const center = box.getCenter(new THREE.Vector3());
+                        const size = box.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const fov = camera.fov * (Math.PI / 180);
+                        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                        cameraZ *= 1.5;
+
+                        camera.position.set(center.x, center.y, center.z + cameraZ);
+                        camera.lookAt(center);
+                        
+                        // Atualizar target do controle se disponível
+                        if (controls && controls.target) {
+                            if (typeof controls.target.copy === 'function') {
+                                controls.target.copy(center);
+                            } else {
+                                controls.target = center.clone();
+                            }
+                        }
+                        
+                        if (controls && typeof controls.update === 'function') {
+                            controls.update();
+                        }
+                    },
+                    (progress) => {
+                        console.log('Carregando modelo...', progress);
+                    },
+                    (error) => {
+                        console.error('Erro ao carregar modelo:', error);
+                        alert('Erro ao carregar modelo: ' + (error.message || 'Erro desconhecido'));
+                    }
+                );
+            } catch (error) {
+                console.error('Erro ao carregar modelo:', error);
+                alert('Erro ao carregar modelo: ' + error.message);
+            }
+        }
+
+        // Iniciar processamento
+        document.getElementById('processForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                input_path: document.getElementById('inputPath').value,
+                output_path: document.getElementById('outputPath').value,
+                metodo: document.getElementById('metodo').value,
+                processar_imagens: document.getElementById('processarImagens').checked,
+                gerar_malha: document.getElementById('gerarMalha').checked
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}/process/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erro ao iniciar processamento');
+                }
+
+                const data = await response.json();
+                currentTaskId = data.task_id;
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('errorItem').classList.add('hidden');
+                
+                // Iniciar polling de status
+                startStatusPolling();
+            } catch (error) {
+                console.error('Erro:', error);
+                showError(error.message);
+            }
+        });
+
+        // Polling de status
+        function startStatusPolling() {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+            }
+
+            statusInterval = setInterval(async () => {
+                if (!currentTaskId) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/process/status/${currentTaskId}`);
+                    const status = await response.json();
+
+                    updateStatus(status);
+
+                    if (status.status === 'completed' || status.status === 'failed') {
+                        clearInterval(statusInterval);
+                        document.getElementById('startBtn').disabled = false;
+                        
+                        if (status.status === 'completed') {
+                            // Recarregar lista de modelos
+                            loadModels();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Erro ao buscar status:', error);
+                }
+            }, 2000);
+        }
+
+        // Atualizar status na UI
+        function updateStatus(status) {
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = getStatusText(status.status);
+            badge.className = `status-badge status-${status.status}`;
+
+            document.getElementById('progressFill').style.width = `${status.progress}%`;
+            document.getElementById('progressFill').textContent = `${Math.round(status.progress)}%`;
+            document.getElementById('statusMessage').textContent = status.message || '';
+            
+            // Atualizar etapa atual
+            const currentStep = document.getElementById('currentStep');
+            currentStep.textContent = status.current_step || '-';
+            
+            // Atualizar tempo estimado
+            const estimatedTime = document.getElementById('estimatedTime');
+            if (status.estimated_time_remaining) {
+                estimatedTime.textContent = status.estimated_time_remaining;
+                estimatedTime.style.color = '#00AEEF'; // Ciano Médio
+                estimatedTime.style.fontWeight = '600';
+            } else {
+                estimatedTime.textContent = '-';
+                estimatedTime.style.color = '';
+                estimatedTime.style.fontWeight = '';
+            }
+
+            // Atualizar logs se disponíveis
+            if (status.logs && status.logs.length > 0) {
+                updateLogs(status.logs);
+                document.getElementById('logsContainer').style.display = 'block';
+            }
+
+            if (status.error) {
+                showError(status.error);
+            } else {
+                document.getElementById('errorItem').classList.add('hidden');
+            }
+        }
+
+        function updateLogs(logs) {
+            const logsBox = document.getElementById('logsBox');
+            logsBox.innerHTML = '';
+            
+            // Mostrar apenas os últimos 50 logs
+            const recentLogs = logs.slice(-50);
+            
+            recentLogs.forEach(log => {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                
+                const timestamp = document.createElement('span');
+                timestamp.className = 'log-timestamp';
+                const date = new Date(log.timestamp);
+                timestamp.textContent = date.toLocaleTimeString();
+                
+                const message = document.createElement('span');
+                message.className = 'log-message';
+                message.textContent = log.message;
+                
+                entry.appendChild(timestamp);
+                entry.appendChild(message);
+                logsBox.appendChild(entry);
+            });
+            
+            // Auto-scroll para o final
+            logsBox.scrollTop = logsBox.scrollHeight;
+        }
+
+        function toggleLogs() {
+            const logsBox = document.getElementById('logsBox');
+            const btn = document.getElementById('toggleLogsBtn');
+            
+            if (logsBox.style.display === 'none') {
+                logsBox.style.display = 'block';
+                btn.textContent = 'Ocultar';
+            } else {
+                logsBox.style.display = 'none';
+                btn.textContent = 'Mostrar';
+            }
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'pending': 'Aguardando',
+                'running': 'Processando',
+                'completed': 'Concluído',
+                'failed': 'Falhou'
+            };
+            return statusMap[status] || status;
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorItem').classList.remove('hidden');
+        }
+
+        // Carregar modelo selecionado
+        document.getElementById('loadModelBtn').addEventListener('click', () => {
+            const modelPath = document.getElementById('modelSelect').value;
+            if (modelPath) {
+                loadModel(modelPath);
+            }
+        });
+
+        // Mudar modo de visualização
+        const viewModeElement = document.getElementById('viewMode');
+        if (viewModeElement) {
+            viewModeElement.addEventListener('change', () => {
+                if (currentModel) {
+                    const modelPath = document.getElementById('modelSelect').value;
+                    if (modelPath) {
+                        loadModel(modelPath);
+                    }
+                }
+            });
+        }
+
+        // Redimensionar visualizador
+        window.addEventListener('resize', () => {
+            if (renderer && camera) {
+                const container = document.getElementById('viewer3D');
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+                
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                renderer.setSize(width, height);
+            }
+        });
+
+        // Inicializar - aguardar loaders estarem prontos
+        waitForLoaders(() => {
+            console.log('✅ Inicializando visualizador 3D...');
+            initViewer();
+            loadModels();
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,74 @@
+services:
+  fotogrametria:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fotogrametria:latest
+    container_name: fotogrametria_app
+    # Comando padrão executa o pipeline; pode ser sobrescrito em `docker-compose up notebook`
+    command: ["python3", "run_pipeline.py"]
+    restart: on-failure
+    env_file:
+      - .env
+    environment:
+      - CUDA_PATH=${CUDA_PATH}
+      - QT_QPA_PLATFORM=${QT_QPA_PLATFORM}
+      - APP_NAME=${APP_NAME}
+      - IMAGE_STORAGE_PATH=${IMAGE_STORAGE_PATH}
+    # Volumes que você pediu:
+    volumes:
+      - ./resources/input:/app/resources/input:rw
+      - ./resources/output:/app/resources/output:rw
+      - ./notebooks:/app/notebooks:rw
+      - ./src:/app/src:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+    ports:
+      - "8888:8888"   # expõe Jupyter (se rodar notebooks)
+    # GPU: requer NVIDIA Container Toolkit / Docker com suporte a gpus
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8192M
+    # Para docker-compose (não swarm) use chave 'gpus' (Compose v1.28+/Docker Engine >=19.03)
+    gpus: all
+    # Limites para docker-compose (trocar conforme sua versão do Docker Compose)
+    mem_limit: 8192m
+    cpus: 4.0
+    # Usuário/UID para evitar problemas de permissão (substitua se preciso)
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # Healthcheck básico para verificar se o container responde (ajuste conforme necessário)
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import sys; sys.exit(0)'"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+
+  notebook:
+    image: fotogrametria:latest
+    container_name: fotogrametria_notebook
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--no-browser", "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+    env_file:
+      - .env
+    environment:
+      - CUDA_PATH=${CUDA_PATH}
+      - QT_QPA_PLATFORM=${QT_QPA_PLATFORM}
+    volumes:
+      - ./notebooks:/app/notebooks:rw
+      - ./resources/input:/app/resources/input:ro
+      - ./resources/output:/app/resources/output:rw
+      - ./src:/app/src:ro
+    ports:
+      - "8889:8888"   # jupyter lab no host:8889 (evitar conflito com serviço principal)
+    gpus: all
+    mem_limit: 4096m
+    cpus: 2.0
+    depends_on:
+      - fotogrametria
+    restart: unless-stopped
+
+volumes:
+  # volumes gerenciados (opcionais)
+  resources_input:
+  resources_output:
+  notebooks_data:
