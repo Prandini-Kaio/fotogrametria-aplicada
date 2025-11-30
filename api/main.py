@@ -337,8 +337,26 @@ def load_status_file(task_id: str) -> Optional[Dict]:
     """Carrega status de arquivo JSON"""
     status_file = STATUS_DIR / f"{task_id}.json"
     if status_file.exists():
-        with open(status_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            # Verificar se o arquivo não está vazio
+            if status_file.stat().st_size == 0:
+                return None
+            
+            with open(status_file, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if not content:
+                    return None
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            # Se o JSON estiver corrompido, tentar recriar do dicionário em memória
+            if task_id in processing_tasks:
+                # Salvar novamente para corrigir o arquivo
+                update_status_file(task_id, processing_tasks[task_id])
+                return processing_tasks[task_id]
+            return None
+        except Exception as e:
+            # Qualquer outro erro, retornar None
+            return None
     return None
 
 @app.get("/api")
@@ -380,28 +398,53 @@ async def start_processing(request: ProcessingRequest, background_tasks: Backgro
 @app.get("/api/process/status/{task_id}", response_model=ProcessingStatus)
 async def get_status(task_id: str):
     """Retorna o status de uma tarefa de processamento"""
-    # Tentar carregar do arquivo primeiro
-    status_data = load_status_file(task_id)
-    
-    if not status_data:
-        # Verificar no dicionário em memória
-        if task_id not in processing_tasks:
-            raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-        status_data = processing_tasks[task_id]
-    
-    # Atualizar estimativa de tempo se estiver rodando
-    if status_data.get("status") == "running" and status_data.get("start_time"):
-        start_time = datetime.fromisoformat(status_data["start_time"])
-        elapsed = (datetime.now() - start_time).total_seconds()
-        progress = status_data.get("progress", 0)
-        estimated = calculate_estimated_time(progress, elapsed)
-        status_data["estimated_time_remaining"] = estimated
-    
-    # Garantir que logs existem
-    if "logs" not in status_data:
-        status_data["logs"] = []
-    
-    return ProcessingStatus(**status_data)
+    try:
+        # Tentar carregar do arquivo primeiro
+        status_data = load_status_file(task_id)
+        
+        if not status_data:
+            # Verificar no dicionário em memória
+            if task_id not in processing_tasks:
+                raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+            status_data = processing_tasks[task_id]
+        
+        # Atualizar estimativa de tempo se estiver rodando
+        if status_data.get("status") == "running" and status_data.get("start_time"):
+            try:
+                start_time = datetime.fromisoformat(status_data["start_time"])
+                elapsed = (datetime.now() - start_time).total_seconds()
+                progress = status_data.get("progress", 0)
+                estimated = calculate_estimated_time(progress, elapsed)
+                status_data["estimated_time_remaining"] = estimated
+            except (ValueError, KeyError):
+                # Se houver erro ao calcular tempo, continuar sem estimativa
+                pass
+        
+        # Garantir que logs existem
+        if "logs" not in status_data:
+            status_data["logs"] = []
+        
+        # Garantir que todos os campos obrigatórios existem
+        required_fields = ["task_id", "status", "progress", "message"]
+        for field in required_fields:
+            if field not in status_data:
+                if field == "task_id":
+                    status_data["task_id"] = task_id
+                elif field == "status":
+                    status_data["status"] = "unknown"
+                elif field == "progress":
+                    status_data["progress"] = 0.0
+                elif field == "message":
+                    status_data["message"] = "Status desconhecido"
+        
+        return ProcessingStatus(**status_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Se houver qualquer erro, tentar retornar dados básicos
+        if task_id in processing_tasks:
+            return ProcessingStatus(**processing_tasks[task_id])
+        raise HTTPException(status_code=500, detail=f"Erro ao carregar status: {str(e)}")
 
 @app.get("/api/process/{task_id}/logs")
 async def get_logs(task_id: str, limit: int = 100):

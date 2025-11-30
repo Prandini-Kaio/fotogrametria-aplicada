@@ -187,34 +187,33 @@ class DenseService:
             full_env['LD_LIBRARY_PATH'] = '/usr/local/cuda/lib64:' + full_env.get('LD_LIBRARY_PATH', '')
             full_env["QT_QPA_PLATFORM"] = "offscreen"
 
-        elif system == "Windows":
-            # Adicionar diretório do COLMAP ao PATH para encontrar DLLs
-            if cmd[0].endswith(".exe") or "colmap" in cmd[0].lower():
-                colmap_exe_path = Path(cmd[0])
-                if colmap_exe_path.exists():
-                    colmap_dir = str(colmap_exe_path.parent)
-                    # Adicionar diretório do COLMAP ao início do PATH
-                    full_env["PATH"] = colmap_dir + os.pathsep + full_env.get("PATH", "")
-                    Log.info(f"[COLMAP] Adicionando ao PATH: {colmap_dir}")
-                    
-                    # Também verificar se há subdiretório lib/ e adicionar
-                    colmap_lib = colmap_exe_path.parent / "lib"
-                    if colmap_lib.exists():
-                        full_env["PATH"] = str(colmap_lib) + os.pathsep + full_env["PATH"]
-                        Log.info(f"[COLMAP] Adicionando lib ao PATH: {colmap_lib}")
-            
-            # Se CUDA estiver instalado no caminho padrão, adicione ao PATH
-            cuda_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin"
-            if Path(cuda_path).exists():
-                full_env["PATH"] = cuda_path + os.pathsep + full_env.get("PATH", "")
-            
-            # Tentar outras versões comuns do CUDA
-            for cuda_version in ["v12.1", "v12.0", "v11.8", "v11.7"]:
-                cuda_path_alt = rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\{cuda_version}\bin"
-                if Path(cuda_path_alt).exists():
-                    full_env["PATH"] = cuda_path_alt + os.pathsep + full_env.get("PATH", "")
-                    Log.info(f"[COLMAP] Adicionando CUDA ao PATH: {cuda_path_alt}")
-                    break
+            # # Adicionar diretório do COLMAP ao PATH para encontrar DLLs
+            # if cmd[0].endswith(".exe") or "colmap" in cmd[0].lower():
+            #     colmap_exe_path = Path(cmd[0])
+            #     if colmap_exe_path.exists():
+            #         colmap_dir = str(colmap_exe_path.parent)
+            #         # Adicionar diretório do COLMAP ao início do PATH
+            #         full_env["PATH"] = colmap_dir + os.pathsep + full_env.get("PATH", "")
+            #         Log.info(f"[COLMAP] Adicionando ao PATH: {colmap_dir}")
+            #
+            #         # Também verificar se há subdiretório lib/ e adicionar
+            #         colmap_lib = colmap_exe_path.parent / "lib"
+            #         if colmap_lib.exists():
+            #             full_env["PATH"] = str(colmap_lib) + os.pathsep + full_env["PATH"]
+            #             Log.info(f"[COLMAP] Adicionando lib ao PATH: {colmap_lib}")
+            #
+            # # Se CUDA estiver instalado no caminho padrão, adicione ao PATH
+            # cuda_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin"
+            # if Path(cuda_path).exists():
+            #     full_env["PATH"] = cuda_path + os.pathsep + full_env.get("PATH", "")
+            #
+            # # Tentar outras versões comuns do CUDA
+            # for cuda_version in ["v12.1", "v12.0", "v11.8", "v11.7"]:
+            #     cuda_path_alt = rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\{cuda_version}\bin"
+            #     if Path(cuda_path_alt).exists():
+            #         full_env["PATH"] = cuda_path_alt + os.pathsep + full_env.get("PATH", "")
+            #         Log.info(f"[COLMAP] Adicionando CUDA ao PATH: {cuda_path_alt}")
+            #         break
 
         try:
             # Executar com captura de saída em tempo real
@@ -230,17 +229,55 @@ class DenseService:
             # Ler saída linha por linha
             last_log_time = time.time()
             line_count = 0
+            last_heartbeat = time.time()
+            
+            # Palavras-chave importantes que sempre devem ser logadas
+            important_keywords = [
+                'error', 'warning', 'failed', 'exception', 'traceback',
+                'processing', 'image', 'camera', 'point', 'match', 'reconstruction',
+                'progress', 'complete', 'finished', 'done', 'elapsed', 'time',
+                'percent', '%', 'remaining', 'estimated',
+                'registering', 'incremental', 'pipeline', 'sees', 'points', 'frames',
+                'colmap', 'feature', 'extractor', 'mapper', 'stereo', 'patch'
+            ]
             
             for line in process.stdout:
                 if line:
                     line = line.strip()
-                    if line and log_callback:
-                        # Log a cada 10 linhas ou a cada 30 segundos
+                    if line:
                         current_time = time.time()
-                        if line_count % 10 == 0 or (current_time - last_log_time) > 30:
+                        should_log = False
+                        
+                        # Sempre logar linhas importantes
+                        line_lower = line.lower()
+                        is_important = any(keyword in line_lower for keyword in important_keywords)
+                        
+                        if is_important:
+                            should_log = True
+                        # Logar a cada 3 linhas (mais frequente para capturar mais atividade)
+                        elif line_count % 3 == 0:
+                            should_log = True
+                        # Logar a cada 10 segundos (heartbeat mais frequente)
+                        elif (current_time - last_log_time) > 10:
+                            should_log = True
+                            # Adicionar indicador de que está processando
+                            line = f"[Processando...] {line}"
+                        
+                        # IMPORTANTE: Sempre atualizar heartbeat se há qualquer linha (indica atividade)
+                        if is_important or line_count % 10 == 0:
+                            last_heartbeat = current_time
+                        
+                        if should_log and log_callback:
                             log_callback(line)
                             last_log_time = current_time
-                    line_count += 1
+                        
+                        line_count += 1
+                        
+                        # Heartbeat: se passou mais de 1 minuto sem log importante, enviar heartbeat
+                        if (current_time - last_heartbeat) > 60:
+                            if log_callback:
+                                log_callback(f"[Heartbeat] Processamento ainda em andamento... (linha {line_count})")
+                            last_heartbeat = current_time
             
             # Aguardar conclusão
             return_code = process.wait()

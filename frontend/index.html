@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fotogrametria - Geração de Modelos 3D</title>
+    <title>Noah - Geração de Modelos 3D</title>
     <!-- Tema Centralizado -->
     <link rel="stylesheet" href="/static/theme.css">
     <!-- Three.js Core -->
@@ -310,7 +310,7 @@
                 </div>
                 
                 <div class="viewer" id="viewer3D">
-                    <div style="color: white; padding: 20px; text-align: center; margin-top: 200px;">
+                    <div style="color: #E6E9EF; padding: 20px; text-align: center; margin-top: 200px;">
                         Nenhum modelo carregado
                     </div>
                 </div>
@@ -370,7 +370,7 @@
             const height = container.clientHeight;
 
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x1a1a1a);
+            scene.background = new THREE.Color(0x0F1115);
 
             camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
             camera.position.set(0, 0, 5);
@@ -591,8 +591,7 @@
                         
                         let material;
                         
-                        // Usar cores da nova paleta (Ciano Médio: #00AEEF)
-                        const primaryColor = 0x00AEEF;
+                        const primaryColor = 0x3F8CFF;
                         
                         if (viewMode === 'wireframe') {
                             material = new THREE.MeshBasicMaterial({ 
@@ -697,11 +696,21 @@
             }
         });
 
-        // Polling de status
+        // Polling de status com detecção de travamento melhorada
+        let lastLogCount = 0;
+        let lastLogTimestamp = null;
+        let stuckWarningShown = false;
+        let lastActivityCheck = Date.now();
+        
         function startStatusPolling() {
             if (statusInterval) {
                 clearInterval(statusInterval);
             }
+            
+            lastLogCount = 0;
+            lastLogTimestamp = null;
+            stuckWarningShown = false;
+            lastActivityCheck = Date.now();
 
             statusInterval = setInterval(async () => {
                 if (!currentTaskId) return;
@@ -711,10 +720,55 @@
                     const status = await response.json();
 
                     updateStatus(status);
+                    
+                    // Detectar travamento melhorado: verificar se há novos logs baseado no timestamp
+                    if (status.logs && status.logs.length > 0 && status.status === 'running') {
+                        const currentLogCount = status.logs.length;
+                        const latestLog = status.logs[status.logs.length - 1];
+                        const latestLogTimestamp = latestLog.timestamp;
+                        
+                        // Verificar se há novos logs comparando timestamp do último log
+                        let hasNewActivity = false;
+                        
+                        if (lastLogTimestamp === null) {
+                            // Primeira verificação
+                            lastLogTimestamp = latestLogTimestamp;
+                            lastLogCount = currentLogCount;
+                            hasNewActivity = true;
+                        } else if (latestLogTimestamp !== lastLogTimestamp) {
+                            // Timestamp mudou = há novos logs
+                            hasNewActivity = true;
+                            lastLogTimestamp = latestLogTimestamp;
+                            lastLogCount = currentLogCount;
+                            lastActivityCheck = Date.now();
+                            stuckWarningShown = false; // Resetar aviso se há atividade
+                        } else if (currentLogCount > lastLogCount) {
+                            // Contagem aumentou mesmo com mesmo timestamp (logs adicionados no mesmo segundo)
+                            hasNewActivity = true;
+                            lastLogCount = currentLogCount;
+                            lastActivityCheck = Date.now();
+                            stuckWarningShown = false;
+                        }
+                        
+                        // Verificar travamento apenas se não há atividade recente
+                        if (!hasNewActivity) {
+                            const timeSinceLastActivity = Date.now() - lastActivityCheck;
+                            const latestLogTime = new Date(latestLogTimestamp).getTime();
+                            const timeSinceLastLog = Date.now() - latestLogTime;
+                            
+                            // Avisar apenas se passou mais de 10 minutos sem atividade E o último log tem mais de 10 minutos
+                            if (timeSinceLastActivity > 600000 && timeSinceLastLog > 600000 && !stuckWarningShown) {
+                                stuckWarningShown = true;
+                                const minutesStuck = Math.floor(timeSinceLastLog / 60000);
+                                showError(`⚠️ AVISO: Nenhuma atividade detectada há ${minutesStuck} minutos. O processamento pode estar travado ou apenas demorando muito. Verifique os logs abaixo.`);
+                            }
+                        }
+                    }
 
                     if (status.status === 'completed' || status.status === 'failed') {
                         clearInterval(statusInterval);
                         document.getElementById('startBtn').disabled = false;
+                        stuckWarningShown = false; // Resetar ao finalizar
                         
                         if (status.status === 'completed') {
                             // Recarregar lista de modelos
@@ -724,7 +778,7 @@
                 } catch (error) {
                     console.error('Erro ao buscar status:', error);
                 }
-            }, 2000);
+            }, 1500); // Polling mais frequente (1.5s em vez de 2s)
         }
 
         // Atualizar status na UI
@@ -745,7 +799,7 @@
             const estimatedTime = document.getElementById('estimatedTime');
             if (status.estimated_time_remaining) {
                 estimatedTime.textContent = status.estimated_time_remaining;
-                estimatedTime.style.color = '#00AEEF'; // Ciano Médio
+                estimatedTime.style.color = '#3F8CFF';
                 estimatedTime.style.fontWeight = '600';
             } else {
                 estimatedTime.textContent = '-';
@@ -768,10 +822,13 @@
 
         function updateLogs(logs) {
             const logsBox = document.getElementById('logsBox');
+            const currentScroll = logsBox.scrollTop;
+            const isAtBottom = logsBox.scrollHeight - logsBox.clientHeight <= currentScroll + 10;
+            
             logsBox.innerHTML = '';
             
-            // Mostrar apenas os últimos 50 logs
-            const recentLogs = logs.slice(-50);
+            // Mostrar mais logs (últimos 100 em vez de 50)
+            const recentLogs = logs.slice(-100);
             
             recentLogs.forEach(log => {
                 const entry = document.createElement('div');
@@ -786,13 +843,24 @@
                 message.className = 'log-message';
                 message.textContent = log.message;
                 
+                if (log.message.includes('❌') || log.message.includes('ERROR') || log.message.toLowerCase().includes('error')) {
+                    entry.style.color = '#FF6B6B';
+                    entry.style.fontWeight = 'bold';
+                } else if (log.message.includes('⚠️') || log.message.includes('WARNING') || log.message.toLowerCase().includes('warning')) {
+                    entry.style.color = '#F2C94C';
+                } else if (log.message.includes('✅') || log.message.includes('complete') || log.message.includes('concluído')) {
+                    entry.style.color = '#4ED1A8';
+                }
+                
                 entry.appendChild(timestamp);
                 entry.appendChild(message);
                 logsBox.appendChild(entry);
             });
             
-            // Auto-scroll para o final
-            logsBox.scrollTop = logsBox.scrollHeight;
+            // Auto-scroll apenas se estava no final
+            if (isAtBottom) {
+                logsBox.scrollTop = logsBox.scrollHeight;
+            }
         }
 
         function toggleLogs() {
